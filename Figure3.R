@@ -19,7 +19,7 @@ names(sample) = sample
 Figure3a <- function (sample) {
   fig3.data.1 = lapply(sample, function(sam) {
     # Load the single-cell pharmacology result object from the specified path
-    rank = readRDS(paste0("./scPharm/result/", sam, "_scPharm_object_nmcs_50_nfs_200.rds"))
+    rank = readRDS(paste0("./scPharm/result/", sam, "_scPharm1208_nmcs_50_nfs_200.rds"))
     return(rank)
   })
   # Loop through each element in the fig3.data.1 list to generate a PDF chart for each
@@ -48,7 +48,7 @@ Figure3a(sample)
 Figure3b <- function (sample) {
   fig3.data.1 = lapply(sample, function(sam) {
     # Load the single-cell pharmacology result object from the specified path
-    rank = readRDS(paste0("./scPharm/result/", sam, "_scPharm_object_nmcs_50_nfs_200.rds"))
+    rank = readRDS(paste0("./scPharm/result/", sam, "_scPharm1208_nmcs_50_nfs_200.rds"))
     return(rank)
   })
   # Loop through each element in the fig3.data.1 list to generate a PDF chart for each
@@ -76,7 +76,7 @@ Figure3b(sample)
 
 Figure3c <- function () {
   # Load the pharmacology result sample MH0176
-  MH0176 = readRDS("./scPharm/result/MH0176_scPharm_object_nmcs_50_nfs_200.rds")
+  MH0176 = readRDS("./scPharm/result/MH0176_scPharm1208_nmcs_50_nfs_200.rds")
   MH0176 = subset(MH0176, subset = cell.label == "tumor")
   umap = data.frame(MH0176@reductions$umap@cell.embeddings)
   umap$label = MH0176$scPharm_label_1032_Afatinib
@@ -163,7 +163,7 @@ Figure3d(sample)
 Figure3e_h <- function (sample) {
   # Load the single-cell pharmacology result object from the specified path
   fig3.data5 = lapply(sample, function(sam) {
-    rank = readRDS(paste0("./scPharm/result/", sam, "_scPharm_object_nmcs_50_nfs_200.rds"))
+    rank = readRDS(paste0("./scPharm/result/", sam, "_scPharm1208_nmcs_50_nfs_200.rds"))
     return(rank)
   })
   # Load the KEGG pathway data
