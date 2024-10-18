@@ -2,144 +2,146 @@
 # Author   : Wanglab
 # Time     : 2024.7
 
-library(Seurat)
-library(readxl)
+library(tidyr)
 library(ggplot2)
-library(ggpubr)
+library(ggalluvial)
+library(ggthemes)
 library(Cairo)
-library(dplyr)
-library(ggsci)
+library(Seurat)
 
+sample = c("MH0001","MH0025","MH0029-7C","MH0029-9C","MH0032","MH0040","MH0042","MH0043-T","MH0064-T",
+           "MH0151","MH0163","MH0173-T","PM0360"  )
+names(sample) = sample
 
-cancer_tcgaid = c("UCEC", "LIHC", "LGG", "BLCA",
-                  "HNSC", "OV", "COREAD", "STAD",
-                  "KIRC", "ESCA", "PAAD", "LUAD",
-                  "BRCA", "SKCM")
-# Load scPharm result of single cell data simulated by bulk data of cancer cell lines
-cl.scPharm = lapply(cancer_tcgaid, function(type) {
-  scPharm = readRDS(paste0("../scPharm/result/", type, "_scPharm_object_nmcs_50_nfs_200.rds"))
-  return(scPharm)
-})
-names(cl.scPharm) = cancer_tcgaid
+# SuppleFigure 7a ---------------------------------------------------------------
+rank.table<-read.csv("ER.multi-evaluate.ranktable.20231113.csv",row.names = 1,check.names = F)
 
-cl.scatter = function(fig2.data.4, fig2.data.5, cancer_type) {
-  # fig2.data4: cancer cell line single cell data
-  # fig2.data5: gdsc data
-  meta.data = fig2.data.4@meta.data
-  drug_id <- fig2.data.5[fig2.data.5$TCGA_DESC == cancer_type,] ## cancer type
-  drug_id <- drug_id[,c(8,9,10,11)]
-  drug_id <- drug_id[!duplicated(drug_id$DRUG_ID),]
-  drug_id = drug_id %>%
-    filter(!if_all(.fns = is.na))
-  scatter.data = data.frame(matrix(0,1,5))
-  colnames(scatter.data) = c("DRUG_ID","DRUG_NAME","MEDIAN_SENSI","MEDIAN_RESIS", "P_VAL1")
-  message("calculate p value")
-  for (i in seq(1, nrow(drug_id))) {
-    x = fig2.data.5[(fig2.data.5$DRUG_ID == drug_id$DRUG_ID[i] & fig2.data.5$TCGA_DESC == cancer_type), c("CELL_LINE_NAME", "AUC")]
-    x = na.omit(x)
-    x = x[order(x[,2]),]
-    colnames(x) = c("cellline", "AUC")
-    # x$cellline = sapply(x$cellline, function(name) {return(toupper(gsub("-","",name)))})
-    x$label = "other"
-    x1 = x
-    x1[x1$AUC >= median(x1$AUC), 3] = "AUC_high.50%"
-    x1[x1$AUC < median(x1$AUC), 3] = "AUC_low.50%"
-    # message(paste0(drug_id$DRUG_ID[i], ":x done"))
-    if (paste("scPharm_nes", drug_id$DRUG_ID[i], drug_id$DRUG_NAME[i], sep = "_") %in% colnames(meta.data)) {
-      meta.data$orig.ident = rownames(meta.data)
-      y = meta.data[, c("orig.ident",paste("scPharm_nes", drug_id$DRUG_ID[i], drug_id$DRUG_NAME[i], sep = "_"))]
-      colnames(y) = c("cellline", "response")
-      # y$cellline = sapply(strsplit(y$orig.ident, split ="_"), function(x) {return(x[[1]][1])})
-      y$group = "other"
-      y[which(y$cellline %in% x1[x1$label == "AUC_high.50%",]$cellline),"group"] = "AUC_high.50%"
-      y[which(y$cellline %in% x1[x1$label == "AUC_low.50%",]$cellline),"group"] = "AUC_low.50%"
-      y = y[y$group != "other",]
-      # message(paste0(drug_id$DRUG_ID[i], "y done"))
-      # print(paste(sum(y$group == "AUC_low.50%"), sum(y$group == "AUC_high.50%"), sep = "---"))
-      if (sum(y$group == "AUC_low.50%") < 3 | sum(y$group == "AUC_high.50%") < 3) {
-        print("next2")
-        next
-      }
-      p.val1 = wilcox.test(y[y$group=="AUC_low.50%",]$response, y[y$group=="AUC_high.50%",]$response,
-                           alternative = "less") # x compare y
-      p.val1 = p.val1$p.value
-      scatter.data[nrow(scatter.data)+1,] = c(drug_id$DRUG_ID[i],
-                                              drug_id$DRUG_NAME[i],
-                                              median(y[y$group == "AUC_low.50%",]$response),
-                                              median(y[y$group == "AUC_high.50%",]$response),
-                                              p.val1)
-    }else {
-      print("next1")
-      next
+df<-c()
+druglist<-c("Fulvestrant_Id1816","Fulvestrant_Id1200")
+
+for (drug in druglist) {
+  for (n in colnames(rank.table)) {
+    print(n)
+    name<-strsplit(n,split = "_")[[1]]
+    sample<-name[1]
+    method<-name[2]
+    order<-grep(drug,rank.table[,n])
+    if(length(order)==1){
+      df<-rbind(df,c(drug,method,sample,order))
     }
   }
-  if (nrow(scatter.data) > 1) {
-    message("ploting scatter plot")
-    scatter.data = scatter.data[-1,]
-    scatter.data[,3:5] = apply(scatter.data[,3:5], 2, as.numeric)
-    scatter.data$signif = "pval >= 0.1"
-    scatter.data[scatter.data$P_VAL1 < 0.1, 6] = "pval < 0.1"
-    axis_begin<- -4
-    axis_end<-4
-    total_ticks<-9
-    tick_frame<-data.frame(ticks=seq(axis_begin,
-                                     axis_end,
-                                     length.out = total_ticks),
-                           zero=0)%>%
-      subset(ticks != 0)
-    label_frame<-data.frame(lab=seq(axis_begin,axis_end),
-                            zero=0)%>%
-      subset(lab!=0)
-    p_axis <- ggplot(tick_frame) +
-      # draw axis line
-      geom_segment(x=0,xend=0,y=-4.5,yend=4.5, linewidth = 0.4)+
-      geom_segment(x=-4.5,xend=4.5,y=0,yend=0, linewidth = 0.4)+
-      # x ticks
-      geom_segment(data=tick_frame,aes(x=zero,xend=zero+0.1,
-                                       y=ticks,yend=ticks))+
-      # y ticks
-      geom_segment(data=tick_frame,aes(x=ticks,xend=ticks,
-                                       y=zero,yend=zero+0.1))+
-      # labels
-      geom_text(data=label_frame,aes(x=zero-0.3,y=lab,label=lab), size = 3, colour = "#4F4F4F")+
-      geom_text(data=label_frame,aes(x=lab,y=zero-0.3,label=lab), size = 3, colour = "#4F4F4F")+
-      theme(panel.grid = element_blank(), #次网格线
-            panel.border = element_blank(), #边框,
-            # panel.border = element_rect(fill = NA, size = 0.8, colour = "#000000", linetype = "solid"),
-            axis.title = element_text(size = 12),
-            axis.text = element_blank(),
-            axis.ticks = element_blank())
-    p2 <- p_axis + geom_point(data = scatter.data, aes(x = MEDIAN_SENSI, y = MEDIAN_RESIS,
-                                                       col = signif), size = 1)+
-      geom_abline(intercept = 0, slope = 1, colour = "black", linetype = "dashed", linewidth = 0.4)+
-      theme_bw() +
-      theme_classic() +
-      theme(plot.title = element_text(hjust = 0.5, size = 14),
-            panel.grid = element_blank(),
-            axis.text = element_blank(),
-            axis.ticks = element_blank(),
-            axis.title = element_text(size = 13),
-            axis.title.y = element_text(size = 13, angle = 90),
-            legend.text = element_text(size = 12),
-            legend.title =  element_blank(),
-            legend.position = c(0.76, 0.12),
-            legend.background = element_rect(fill = rgb(1,1,1, alpha = 0.001), colour = NA)
-      )+
-      xlab("NES (AUC_low)")+
-      ylab("NES (AUC_high)")+
-      scale_color_manual(values = c("#6A5ACD", "#FD8D3C")) +
-      guides(color=guide_legend(override.aes = list(size=2))) +
-      ggtitle(paste0(cancer_type, "\n(# of drug : ",nrow(scatter.data),")"))
-    CairoPDF(paste0("./Figure/figs7/", cancer_type,".pdf"), width = 3.4, height = 3.6)
-    print(p2)
-    dev.off()
-    return(scatter.data)
-  }else {
-    return(NULL)
+}
+df<-data.frame(df)
+colnames(df)<-c('Drug','Method','Sample','Order')
+df$Order<-df$Order%>%as.numeric()
+df$Method<-factor(df$Method,levels = c("SeuratCCA", "Scissor", "scDEAL", "CaDRReS-Sc", "scPharm"))
+df$Score<-1/df$Order
+
+
+df$Max_conc<-"Low_conc"
+df[df$Drug=="Fulvestrant_Id1200",]$Max_conc<-"High_conc"
+df$Interaction <- interaction(df$Method, df$Max_conc)
+df$Interaction<-factor(df$Interaction,levels =c("SeuratCCA.High_conc","SeuratCCA.Low_conc" ,  "Scissor.High_conc" ,"Scissor.Low_conc" ,     "scDEAL.High_conc",  "scDEAL.Low_conc" ,  
+                                                "CaDRReS-Sc.High_conc", "CaDRReS-Sc.Low_conc" , "scPharm.High_conc","scPharm.Low_conc" ) )
+
+## scPharm
+df<-df%>%filter(Method=="scPharm")
+df$Max_conc<-"High_conc"
+df[df$Drug=="Fulvestrant_Id1200",]$Max_conc<-"Low_conc"
+df$Max_conc<-factor(df$Max_conc,levels = c("Low_conc","High_conc"))
+
+p<-ggplot(df, aes(x = Max_conc, y = Order, fill = Max_conc)) +
+  stat_boxplot(geom="errorbar",width = 0.2, position = position_dodge(width = 0.75)) +
+  geom_boxplot(outlier.size = 0,outlier.alpha = 0,width = 0.7, position = position_dodge(width = 0.75)) +
+  geom_jitter(size=1.3,alpha=0.5,width = 0.2) +
+  
+  geom_signif(comparisons = list(c("Low_conc","High_conc")
+  ),
+  y_position = c(280),
+  map_signif_level = T,tip_length = 0.01,vjust = 0.8)+
+  
+  labs(x = "Drug concentration",
+       y = "Order(1-295)") +
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1),
+        plot.margin = unit(c(1,0.5,0.5,0.5),"cm"),title = element_text(size = 10))+
+  ggtitle("fulvestrant.ER-positive sample")+
+  scale_fill_manual(values = c("#5272A8","#5CAB6F"))
+
+ggsave(filename = "Fig.s7a.pdf",
+       plot =p,width =3.5,height = 6)
+	   
+	   
+# SuppleFigure 7b ---------------------------------------------------------------
+SuppleFigure7b <- function (sample) {
+  data.1 = lapply(sample, function(sam) {
+    # Load the single-cell pharmacology result object from the specified path
+    rank = readRDS(paste0("./scPharm/result/", sam, "_scPharm_object_nmcs_50_nfs_200.rds"))
+    return(rank)
+  })
+  # Loop through each element in the data.1 list to generate a PDF chart for each
+  for (sam in names(data.1)) {
+  meta.data = data.1[[sam]]@meta.data
+  meta.data = meta.data[meta.data$cell.label == "tumor", c("scPharm_label_1200_Fulvestrant", "scPharm_label_1816_Fulvestrant")]
+  meta.data = meta.data[order(meta.data$scPharm_label_1200_Fulvestrant),]
+  colnames(meta.data) = c("Fulvestrant_low","Fulvestrant_high")
+  meta.data = meta.data %>% gather(key = "dosage", value = "cluster")
+  meta.data$cell = c(rep(1:(nrow(meta.data)/2),2))
+  CairoPDF(paste("./Figure/supfig7b/alluvial_", sam,"_1112.pdf", sep = ""), width = 2.2, height = 4)
+  alluvial = ggplot(meta.data,
+                    aes(x = dosage, stratum = cluster, alluvium = cell, y =cell,
+                        fill = cluster, label = NULL)) +
+    geom_col(width = 0.3,color=NA) +
+    scale_x_discrete(limits = c("Fulvestrant_low","Fulvestrant_high"), expand = c(.1, .1)) +
+    geom_flow(alpha = 0.6, linewidth = 0) +
+    geom_stratum(alpha = 1, width = .3, color = "white", linewidth = 0) +
+    scale_fill_manual(values = c("#B5B5B5", "#FF0000", "#0000FF")) +
+    # geom_text(stat = "stratum", size = 8) +
+    theme_map()+
+    theme(legend.position = "none",
+          plot.title = element_text(hjust = 0.5, size = 13),
+          axis.text.x = element_text(hjust = 0.1, size = 12, angle = -60)) +
+    ggtitle(sam)
+  print(alluvial)
+  dev.off()
   }
 }
-
-for (i in 1:14) {
-  print(names(cl.scPharm)[i])
-  scatter.data = cl.scatter(fig2.data.4 = cl.scPharm[[i]], fig2.data.5 = gdsc.data, cancer_type = names(cl.scPharm)[i])
+# statistic test for SuppleFigure 7b
+c.switch = function(label) {
+  # transform the label to 0,1,2
+  if (label == "other") {
+    return(0)
+  }else if (label == "resistant") {
+    return(1)
+  }else {
+    return(2)
+  }
 }
+STforSF7b <- function (sample) {
+  data.list = lapply(sample, function(sam) {
+    # Load the single-cell pharmacology result object from the specified path
+    rank = readRDS(paste0("./scPharm/result/", sam, "_scPharm_object_nmcs_50_nfs_200.rds"))
+    return(rank)
+  })
+  signif = c()
+  for (sam in names(data.list)) {
+    meta.data = data.list[[sam]]@meta.data
+    meta.data = meta.data[meta.data$cell.label == "tumor",c("scPharm_label_1200_Fulvestrant", "scPharm_label_1816_Fulvestrant")]
+    meta.data = meta.data[order(meta.data$scPharm_label_1200_Fulvestrant),]
+    meta.data = meta.data[(meta.data$scPharm_label_1200_Fulvestrant != "sensitive" | meta.data$scPharm_label_1816_Fulvestrant != "sensitive"),]
+    sample = sample(1:nrow(meta.data), nrow(meta.data))
+    meta.data$H0 = meta.data$scPharm_label_1200_Fulvestrant[sample]
+    meta.data = meta.data[meta.data$scPharm_label_1200_Fulvestrant == 'other',]
+    test.data = data.frame(matrix(0, 1853, 2))
+    colnames(test.data) = c("H0","H1")
+    for (i in 1:nrow(meta.data)) {
+      test.data[i, "H1"] = c.switch(meta.data$scPharm_label_1816_Fulvestrant[i])
+      test.data[i, "H0"] = c.switch(meta.data$H0[i])
+    }
+    pval = wilcox.test(test.data$H1, test.data$H0, alternative = "greater", paired = T)$p.value
+    signif = c(signif, pval)
+  }
+  return(signif)
+}
+
+SuppleFigure7b(sample)
